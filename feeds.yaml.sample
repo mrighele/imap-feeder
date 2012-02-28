@@ -1,0 +1,4 @@
+feeds:
+  - name: "Steam Game Sales"
+    url: http://feeds.feedburner.com/SteamGameSalesUS
+    filters: [steam_cheap]

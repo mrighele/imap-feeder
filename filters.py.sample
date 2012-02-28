@@ -1,0 +1,16 @@
+"""
+Put here any function that you want to use as a filter
+The function should either return the updated feed item, or None if it has to
+be discarder
+"""
+import re
+
+def steam_cheap(feed,item):
+    """Example filter for Steam Game Sales (http://feeds.feedburner.com/SteamGameSalesUS)
+    Return the feed only if the discounted price is under $10.00
+    """
+    text = item['title_detail']['value']
+    price = float( re.search("\$(\d+.\d+)",text).group(1))
+    if price < 10.00:
+        return item
+

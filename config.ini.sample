@@ -1,0 +1,8 @@
+[IMAP]
+username: by-name
+password: *********
+server: imap.somewhere.com
+port: 143
+ssl: False
+root-folder: News
+
