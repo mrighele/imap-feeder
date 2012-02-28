@@ -1,0 +1,189 @@
+#!/usr/bin/python
+#
+# Copyright (c) 2006-2012 Marco Righele <marco@righele.it>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to 
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+try:
+        import psyco
+        psyco.full()
+except:
+        pass
+
+import sys
+import logging
+import feedparser
+import os
+import os.path
+import time
+
+import imap
+import cache
+
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(message)s')
+
+def findConfigFolder():
+    import os
+    configPath = os.path.join(os.environ['HOME'],'.config')
+    if os.environ.has_key('XDG_CONFIG_HOME'):
+        configPath = os.environ['XDG_CONFIG_HOME']
+
+    return os.path.join(configPath,"imap-feeder")
+
+configFolder = findConfigFolder()
+defaultConfig = os.path.join( configFolder , "config.ini" )
+
+def readConfig(configFile= defaultConfig ):
+    import ConfigParser
+    result = {}
+    cp = ConfigParser.ConfigParser()
+    cp.readfp( open(configFile) )
+    for item in cp.items("IMAP"):
+        result[ item[0] ] = item[1]
+    if not 'root-folder' in result:
+        result["root-folder"] = ["INBOX"]
+    else:
+        result["root-folder"] = result["root-folder"].split(".")
+    return result
+	
+def login( server, username, password ):
+    logging.info("logging in to server %s" % server )
+    return imap.IMAP( server, username, password )
+
+
+def fetchFeeds( feedList ):
+    result = []
+    for feed in feedList:
+        address = feed['url'].strip()
+        logging.info("Fetching feed from %s" % address)
+        feedInfo =  feedparser.parse( address )
+	feedInfo['filters'] = feed.get('filters',[])
+	yield feedInfo
+
+def fillMissingInfo(feedInfo):
+    """Add some extra information. Also add missing information that we latex expect to always find"""
+    feed = feedInfo.feed
+    feed['title'] = feed.get('title', feed.get('text', feed.get('info' , feed.get('link', "Unknown"))))
+    feed.title = feed['title']
+
+    for entry in feedInfo.entries:
+        entry.published_parser = entry['published_parsed'] = entry.get( 'published_parsed' , entry.get( 'updated_parsed', time.localtime() ) )
+	
+        entry.id = entry['id'] = entry.get( 'id' , entry['title'])
+        entry.summary = entry['summary'] = entry.get('summary', entry.get( 'subtitle', entry.get('content', '')))
+        entry.summary_detail = entry['summary_detail'] = entry.get('summary_detail', { 'type' : 'text/plain' } )
+        entry["links"] = entry.get('links',[])
+        entry["enclosures"] = entry.get('enclosures',[])
+	
+    feedInfo.destinationFolder = feedInfo["destinationFolder"] = feedInfo.feed.title
+    return feedInfo
+
+
+def readFeedsList( filename ):
+    import yaml
+    data = yaml.load(file(filename).read())
+
+    return data['feeds']
+
+
+def getFilters(configFolder):
+    import sys
+    oldPath = sys.path
+    sys.path = [configFolder] + sys.path
+    try:
+        import filter as feedFilter
+	sys.path = oldPath
+	return feedFilter
+    except:
+        sys.path = oldPath
+	class Nothing:
+            pass
+	return Nothing()
+
+
+
+def applyFilters(filters,feedInfo):
+    entries = feedInfo['entries']
+    for f in filters:
+        logging.info("Applying filter %s" % f )
+        entries = map(lambda x: f(feedInfo,x),entries)
+	entries = filter(lambda x : x != None, entries )
+    return entries
+
+
+def filterFeeds(feedInfo, filters):
+    for fi in feedInfo:
+        feed = fi['feed']
+	n = len(fi['entries'])
+        logging.info("Applying filters to feed %s" % feed['title'])
+        feedFilters = []
+	for filt in fi['filters']:
+            if filt not in dir(filters):
+                logging.error("Invalid filter %s for feed %s" % (filt,feed['title']))
+		return []
+	    feedFilters.append(getattr(filters,filt))
+	    fi['entries'] = applyFilters(feedFilters,fi)
+	logging.info( "Applied %d filters, removed %d entries" % (len(fi['filters']), n - len(fi['entries'])))
+    return feedInfo
+
+            
+	
+
+    
+def main():
+    config = readConfig()
+    rootFolder = config["root-folder"]
+    server = config["server"]
+    username = config["username"]
+    password = config["password"]
+    ssl = config["ssl"]
+    port = None
+    if config.has_key("port"):
+        port = config["port"]
+    if ssl == "False":
+	    ssl = False
+    elif ssl == "True":
+	    ssl = True
+    else:
+	    print "Invalid option for ssl:",ssl
+	    import sys
+	    sys.exit(1)
+    feedList = readFeedsList( os.path.join( configFolder,"feeds.yaml" ))
+
+    cacheFile = os.path.join(configFolder, "cache.pickle")
+    messageCache = cache.MessageCache(cacheFile)
+    server = imap.IMAP( server, username, password, ssl, port )
+    store = imap.IMAPStore(server, rootFolder, messageCache)
+    filters = getFilters(configFolder)
+
+    if not store.checkFolder( [] ):
+        logging.error("Unable to create/open root folder %s, aborting" % rootFolder )
+        sys.exit(1)
+    feedInfos = fetchFeeds( feedList )
+    feedInfos = ( fillMissingInfo(fi) for fi in feedInfos )
+    feedInfos = filterFeeds(feedInfos, filters)
+    for feed in feedInfos:
+        store.storeMessages( feed  )
+    store.logout()
+    messageCache.close()
+
+if __name__ == "__main__":
+    main()
