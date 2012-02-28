@@ -138,12 +138,10 @@ def filterFeeds(feedInfo, filters):
 	for filt in fi['filters']:
             if filt not in dir(filters):
                 logging.error("Invalid filter %s for feed %s" % (filt,feed['title']))
-		return []
 	    feedFilters.append(getattr(filters,filt))
 	    fi['entries'] = applyFilters(feedFilters,fi)
-	logging.info( "Applied %d filters, removed %d entries" % (len(fi['filters']), n - len(fi['entries'])))
-    return feedInfo
-
+	logging.info( "Applied %d filters, removed %d entries out of %d" % (len(fi['filters']), n - len(fi['entries']), n))
+	yield fi
             
 	
 
