@@ -118,7 +118,6 @@ class IMAP:
         if port == None and ssl:
             port = 993
 
-        print "Using Port",port
         self.server = Server(address,port)
         self.server.login( username, password )
         self.username = username
@@ -256,7 +255,7 @@ class IMAPStore:
                     continue
                 todo.append(entry)
             except Exception, e:
-                logging.warning("Unhandled exception: %s" % str(e) )
+                logging.warning("Unhandled exception while storing messages:: %s" % str(e) )
         logging.info( "Sending %d messages for feed %s" % (len(todo), feedInfo.feed.title))
         for entry in todo:
             try:
