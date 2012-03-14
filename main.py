@@ -21,10 +21,10 @@
 # IN THE SOFTWARE.
 
 try:
-        import psyco
-        psyco.full()
+    import psyco
+    psyco.full()
 except:
-        pass
+    pass
 
 import sys
 import logging
@@ -63,7 +63,7 @@ def readConfig(configFile= defaultConfig ):
     else:
         result["root-folder"] = result["root-folder"].split(".")
     return result
-	
+    
 def login( server, username, password ):
     logging.info("logging in to server %s" % server )
     return imap.IMAP( server, username, password )
@@ -75,8 +75,8 @@ def fetchFeeds( feedList ):
         address = feed['url'].strip()
         logging.info("Fetching feed from %s" % address)
         feedInfo =  feedparser.parse( address )
-	feedInfo['filters'] = feed.get('filters',[])
-	yield feedInfo
+        feedInfo['filters'] = feed.get('filters',[])
+        yield feedInfo
 
 def fillMissingInfo(feedInfo):
     """Add some extra information. Also add missing information that we latex expect to always find"""
@@ -86,13 +86,13 @@ def fillMissingInfo(feedInfo):
 
     for entry in feedInfo.entries:
         entry.published_parser = entry['published_parsed'] = entry.get( 'published_parsed' , entry.get( 'updated_parsed', time.localtime() ) )
-	
+    
         entry.id = entry['id'] = entry.get( 'id' , entry['title'])
         entry.summary = entry['summary'] = entry.get('summary', entry.get( 'subtitle', entry.get('content', '')))
         entry.summary_detail = entry['summary_detail'] = entry.get('summary_detail', { 'type' : 'text/plain' } )
         entry["links"] = entry.get('links',[])
         entry["enclosures"] = entry.get('enclosures',[])
-	
+    
     feedInfo.destinationFolder = feedInfo["destinationFolder"] = feedInfo.feed.title
     return feedInfo
 
@@ -110,13 +110,14 @@ def getFilters(configFolder):
     sys.path = [configFolder] + sys.path
     try:
         import filter as feedFilter
-	sys.path = oldPath
-	return feedFilter
-    except:
         sys.path = oldPath
-	class Nothing:
+        return feedFilter
+    except:
+        logging.warning("Unable to load filter file")
+        sys.path = oldPath
+        class Nothing:
             pass
-	return Nothing()
+        return Nothing()
 
 
 
@@ -125,25 +126,28 @@ def applyFilters(filters,feedInfo):
     for f in filters:
         logging.info("Applying filter %s" % f )
         entries = map(lambda x: f(feedInfo,x),entries)
-	entries = filter(lambda x : x != None, entries )
+        entries = filter(lambda x : x != None, entries )
     return entries
 
 
 def filterFeeds(feedInfo, filters):
     for fi in feedInfo:
-        feed = fi['feed']
-	n = len(fi['entries'])
-        logging.info("Applying filters to feed %s" % feed['title'])
-        feedFilters = []
-	for filt in fi['filters']:
-            if filt not in dir(filters):
-                logging.error("Invalid filter %s for feed %s" % (filt,feed['title']))
-	    feedFilters.append(getattr(filters,filt))
-	    fi['entries'] = applyFilters(feedFilters,fi)
-	logging.info( "Applied %d filters, removed %d entries out of %d" % (len(fi['filters']), n - len(fi['entries']), n))
-	yield fi
-            
-	
+        try:
+            feed = fi['feed']
+            n = len(fi['entries'])
+            logging.info("Applying filters to feed %s" % feed['title'])
+            feedFilters = []
+            for filt in fi['filters']:
+                if filt not in dir(filters):
+                    logging.error("Invalid filter %s for feed %s" % (filt,feed['title']))
+                else:
+                    feedFilters.append(getattr(filters,filt))
+            logging.info("Using %d filters" % len(feedFilters))
+            fi['entries'] = applyFilters(feedFilters,fi)
+            logging.info( "Applied %d filters, removed %d entries out of %d" % (len(fi['filters']), n - len(fi['entries']), n))
+            yield fi
+        except Exception,e:
+            logging.error("Error while trying to apply filter to feed %s: %s" % (feed['title'], e))
 
     
 def main():
@@ -157,13 +161,13 @@ def main():
     if config.has_key("port"):
         port = config["port"]
     if ssl == "False":
-	    ssl = False
+        ssl = False
     elif ssl == "True":
-	    ssl = True
+        ssl = True
     else:
-	    print "Invalid option for ssl:",ssl
-	    import sys
-	    sys.exit(1)
+        print "Invalid option for ssl:",ssl
+        import sys
+        sys.exit(1)
     feedList = readFeedsList( os.path.join( configFolder,"feeds.yaml" ))
 
     cacheFile = os.path.join(configFolder, "cache.pickle")
