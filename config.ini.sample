@@ -1,5 +1,5 @@
 [IMAP]
-username: by-name
+username: my-name
 password: *********
 server: imap.somewhere.com
 port: 143
