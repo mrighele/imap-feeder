@@ -6,3 +6,5 @@ port: 143
 ssl: False
 root-folder: News
 
+[general]
+log: /path/to/file.log

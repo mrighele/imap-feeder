@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# Copyright (c) 2006-2012 Marco Righele <marco@righele.it>
+# Copyright (c) 2006-2013 Marco Righele <marco@righele.it>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to 
@@ -37,8 +37,29 @@ import imap
 import cache
 
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(message)s')
+def setupLogging(config):
+    log_file = config['log']
+    logger = logging.getLogger("imap-feeder")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    if log_file == None:
+        sth = logging.StreamHandler()
+        sth.setLevel(logging.INFO)
+        sth.setFormatter(formatter)
+        logger.addHandler(sth)
+        logger.warn("No log file specified, every thing will go to standard output")
+    else:
+        sth = logging.StreamHandler()
+        sth.setLevel(logging.WARNING)
+        sth.setFormatter(formatter)
+        logger.addHandler(sth)
+        fhnd = logging.FileHandler(log_file)
+        fhnd.setLevel(logging.INFO)
+        fhnd.setFormatter(formatter)
+        logger.addHandler(fhnd)
+    return logger
+
 
 def findConfigFolder():
     import os
@@ -62,10 +83,12 @@ def readConfig(configFile= defaultConfig ):
         result["root-folder"] = ["INBOX"]
     else:
         result["root-folder"] = result["root-folder"].split(".")
+
+    result['log'] = cp.get('general','log')
     return result
     
 def login( server, username, password ):
-    logging.info("logging in to server %s" % server )
+    logger.info("logging in to server %s" % server )
     return imap.IMAP( server, username, password )
 
 
@@ -73,7 +96,7 @@ def fetchFeeds( feedList ):
     result = []
     for feed in feedList:
         address = feed['url'].strip()
-        logging.info("Fetching feed from %s" % address)
+        logger.info("Fetching feed from %s" % address)
         feedInfo =  feedparser.parse( address )
         feedInfo['filters'] = feed.get('filters',[])
         yield feedInfo
@@ -113,7 +136,7 @@ def getFilters(configFolder):
         sys.path = oldPath
         return feedFilter
     except:
-        logging.warning("Unable to load filter file")
+        logger.warning("Unable to load filter file")
         sys.path = oldPath
         class Nothing:
             pass
@@ -124,7 +147,7 @@ def getFilters(configFolder):
 def applyFilters(filters,feedInfo):
     entries = feedInfo['entries']
     for f in filters:
-        logging.info("Applying filter %s" % f )
+        logger.info("Applying filter %s" % f )
         entries = map(lambda x: f(feedInfo,x),entries)
         entries = filter(lambda x : x != None, entries )
     return entries
@@ -135,23 +158,26 @@ def filterFeeds(feedInfo, filters):
         try:
             feed = fi['feed']
             n = len(fi['entries'])
-            logging.info("Applying filters to feed %s" % feed['title'])
+            logger.info("Applying filters to feed %s" % feed['title'])
             feedFilters = []
             for filt in fi['filters']:
                 if filt not in dir(filters):
-                    logging.error("Invalid filter %s for feed %s" % (filt,feed['title']))
+                    logger.error("Invalid filter %s for feed %s" % (filt,feed['title']))
                 else:
                     feedFilters.append(getattr(filters,filt))
-            logging.info("Using %d filters" % len(feedFilters))
+            logger.info("Using %d filters" % len(feedFilters))
             fi['entries'] = applyFilters(feedFilters,fi)
-            logging.info( "Applied %d filters, removed %d entries out of %d" % (len(fi['filters']), n - len(fi['entries']), n))
+            logger.info( "Applied %d filters, removed %d entries out of %d" % (len(fi['filters']), n - len(fi['entries']), n))
             yield fi
         except Exception,e:
-            logging.error("Error while trying to apply filter to feed %s: %s" % (feed['title'], e))
+            logger.error("Error while trying to apply filter to feed %s: %s" % (feed['title'], e))
 
+logger = None
     
 def main():
+    global logger
     config = readConfig()
+    logger = setupLogging(config)
     rootFolder = config["root-folder"]
     server = config["server"]
     username = config["username"]
@@ -165,7 +191,7 @@ def main():
     elif ssl == "True":
         ssl = True
     else:
-        print "Invalid option for ssl:",ssl
+        logger.critical("Invalid option for ssl: %s" % ssl)
         import sys
         sys.exit(1)
     feedList = readFeedsList( os.path.join( configFolder,"feeds.yaml" ))
@@ -177,7 +203,7 @@ def main():
     filters = getFilters(configFolder)
 
     if not store.checkFolder( [] ):
-        logging.error("Unable to create/open root folder %s, aborting" % rootFolder )
+        logger.error("Unable to create/open root folder %s, aborting" % rootFolder )
         sys.exit(1)
     feedInfos = fetchFeeds( feedList )
     feedInfos = ( fillMissingInfo(fi) for fi in feedInfos )
